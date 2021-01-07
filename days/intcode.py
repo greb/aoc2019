@@ -52,8 +52,10 @@ class Machine:
         self.out_queue = collections.deque()
 
     def run(self):
-        while self.status == Status.RUN:
+        while True:
             self.step()
+            if self.status != Status.RUN:
+                break
         return self.status
 
     def load(self, addr):
@@ -105,7 +107,7 @@ class Machine:
 
     def step(self):
         if self.status == Status.HLT:
-            return self.status
+            return
 
         opcode, self.modes = self.current_instr()
         if opcode not in self.opcodes:
@@ -130,6 +132,8 @@ class Machine:
         if len(self.inp_queue) == 0:
             self.status = Status.WFI
             return
+
+        self.status = Status.RUN
         val = self.inp_queue.pop()
         self.store_param(0, val)
         self.instr_pointer += 2
@@ -166,7 +170,6 @@ class Machine:
         b = self.load_param(1)
         self.store_param(2, int(a == b))
         self.instr_pointer += 4
-
 
     def op_hlt(self):
         self.status = Status.HLT
