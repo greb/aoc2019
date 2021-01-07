@@ -26,8 +26,15 @@ def parse_code(code):
         raise ValueError('Invalid code')
 
 class Machine:
-    def __init__(self, code):
+    def __init__(self, code, memsize=None):
         self.rom = parse_code(code)
+        if not memsize:
+            # Should be enough for anyone
+            self.memsize = 640 * 1024
+        else:
+            self.memsize = memsize
+        assert self.memsize >= len(self.rom)
+
         self.reset()
         self.opcodes = {
             1: self.op_add,
@@ -38,15 +45,20 @@ class Machine:
             6: self.op_jif,
             7: self.op_lt,
             8: self.op_eq,
+            9: self.op_adj,
             99: self.op_hlt
         }
 
     def reset(self):
-        self.memory = self.rom.copy()
         self.instr_pointer = 0
+        self.relative_base = 0
 
         self.status = Status.RUN
         self.modes = (0,0,0)
+
+        self.memory = [0]*self.memsize
+        for addr, val in enumerate(self.rom):
+            self.memory[addr] = val
 
         self.inp_queue = collections.deque()
         self.out_queue = collections.deque()
@@ -72,15 +84,20 @@ class Machine:
 
     def load_param(self, param):
         mode = self.modes[param]
-        offset = self.instr_pointer + param + 1
+        pos = self.instr_pointer + param + 1
 
         if mode == 0:
             # Position mode
-            addr = self.load(offset)
+            addr = self.load(pos)
             val  = self.load(addr)
         elif mode == 1:
             # Immediate mode
-            val = self.load(offset)
+            val = self.load(pos)
+        elif mode == 2:
+            # Relative mode
+            offset = self.load(pos)
+            addr   = self.relative_base + offset
+            val    = self.load(addr)
         else:
             msg = f'Invalid load mode {mode}'
             raise OpError(msg)
@@ -88,14 +105,18 @@ class Machine:
 
     def store_param(self, param, val):
         mode = self.modes[param]
-        offset = self.instr_pointer + param + 1
+        pos = self.instr_pointer + param + 1
         if mode == 0:
             # Position mode
-            addr = self.load(offset)
-            self.store(addr, val)
+            addr = self.load(pos)
+        elif mode == 2:
+            # Relative mode
+            offset = self.load(pos)
+            addr = self.relative_base + offset
         else:
             msg = f'Invalid store mode {mode}'
             raise OpError(msg)
+        self.store(addr, val)
 
     def current_instr(self):
         instr = self.load(self.instr_pointer)
@@ -170,6 +191,11 @@ class Machine:
         b = self.load_param(1)
         self.store_param(2, int(a == b))
         self.instr_pointer += 4
+
+    def op_adj(self):
+        offset = self.load_param(0)
+        self.relative_base += offset
+        self.instr_pointer += 2
 
     def op_hlt(self):
         self.status = Status.HLT
