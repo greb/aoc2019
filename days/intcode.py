@@ -1,4 +1,5 @@
 import enum
+import collections
 
 class ExecutionError(Exception):
     pass
@@ -6,9 +7,13 @@ class ExecutionError(Exception):
 class MemoryAccessError(Exception):
     pass
 
+class OpError(Exception):
+    pass
+
 class Status(enum.Enum):
     RUN = 'run'
     HLT = 'halt'
+    WFI = 'wait for input'
 
 def parse_code(code):
     if code is None:
@@ -27,13 +32,29 @@ class Machine:
         self.opcodes = {
             1: self.op_add,
             2: self.op_mul,
+            3: self.op_inp,
+            4: self.op_out,
+            5: self.op_jit,
+            6: self.op_jif,
+            7: self.op_lt,
+            8: self.op_eq,
             99: self.op_hlt
         }
 
     def reset(self):
         self.memory = self.rom.copy()
         self.instr_pointer = 0
+
         self.status = Status.RUN
+        self.modes = (0,0,0)
+
+        self.inp_queue = collections.deque()
+        self.out_queue = collections.deque()
+
+    def run(self):
+        while self.status == Status.RUN:
+            self.step()
+        return self.status
 
     def load(self, addr):
         if addr >= len(self.memory):
@@ -48,43 +69,104 @@ class Machine:
         self.memory[addr] = val
 
     def load_param(self, param):
-        addr = self.load(self.instr_pointer + param)
-        return self.load(addr)
+        mode = self.modes[param]
+        offset = self.instr_pointer + param + 1
+
+        if mode == 0:
+            # Position mode
+            addr = self.load(offset)
+            val  = self.load(addr)
+        elif mode == 1:
+            # Immediate mode
+            val = self.load(offset)
+        else:
+            msg = f'Invalid load mode {mode}'
+            raise OpError(msg)
+        return val
 
     def store_param(self, param, val):
-        addr = self.load(self.instr_pointer + param)
-        self.store(addr, val)
+        mode = self.modes[param]
+        offset = self.instr_pointer + param + 1
+        if mode == 0:
+            # Position mode
+            addr = self.load(offset)
+            self.store(addr, val)
+        else:
+            msg = f'Invalid store mode {mode}'
+            raise OpError(msg)
 
     def current_instr(self):
-        return self.load(self.instr_pointer)
+        instr = self.load(self.instr_pointer)
+        instr, opcode = divmod(instr, 100)
+        instr, mode0  = divmod(instr, 10)
+        instr, mode1  = divmod(instr, 10)
+        _    , mode2  = divmod(instr, 10)
+        return opcode, (mode0, mode1, mode2)
 
     def step(self):
         if self.status == Status.HLT:
             return self.status
 
-        opcode = self.current_instr()
+        opcode, self.modes = self.current_instr()
         if opcode not in self.opcodes:
             msg = f'Invalid opcode {opcode} at address {self.instr_pointer}'
             raise ExecutionError(msg)
 
         self.opcodes[opcode]()
 
-    def run(self):
-        while self.status == Status.RUN:
-            self.step()
-        return self.status
-
     def op_add(self):
-        a = self.load_param(1)
-        b = self.load_param(2)
-        self.store_param(3, a+b)
+        a = self.load_param(0)
+        b = self.load_param(1)
+        self.store_param(2, a+b)
         self.instr_pointer += 4
 
     def op_mul(self):
-        a = self.load_param(1)
-        b = self.load_param(2)
-        self.store_param(3, a*b)
+        a = self.load_param(0)
+        b = self.load_param(1)
+        self.store_param(2, a*b)
         self.instr_pointer += 4
+
+    def op_inp(self):
+        if len(self.inp_queue) == 0:
+            self.status = Status.WFI
+            return
+        val = self.inp_queue.pop()
+        self.store_param(0, val)
+        self.instr_pointer += 2
+
+    def op_out(self):
+        val = self.load_param(0)
+        self.out_queue.appendleft(val)
+        self.instr_pointer += 2
+
+    def op_jit(self):
+        val = self.load_param(0)
+        if val != 0:
+            addr = self.load_param(1)
+            self.instr_pointer = addr
+        else:
+            self.instr_pointer += 3
+
+    def op_jif(self):
+        val = self.load_param(0)
+        if val == 0:
+            addr = self.load_param(1)
+            self.instr_pointer = addr
+        else:
+            self.instr_pointer += 3
+
+    def op_lt(self):
+        a = self.load_param(0)
+        b = self.load_param(1)
+        self.store_param(2, int(a < b))
+        self.instr_pointer += 4
+
+    def op_eq(self):
+        a = self.load_param(0)
+        b = self.load_param(1)
+        self.store_param(2, int(a == b))
+        self.instr_pointer += 4
+
 
     def op_hlt(self):
         self.status = Status.HLT
