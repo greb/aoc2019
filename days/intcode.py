@@ -87,6 +87,11 @@ class Machine:
     def recv(self):
         return self.out_queue.pop()
 
+    def recv_all(self):
+        out = list(reversed(self.out_queue))
+        self.out_queue.clear()
+        return out
+
     def load(self, addr):
         if addr >= len(self.memory):
             msg = f'Could not load value from invalid adress {addr}'
