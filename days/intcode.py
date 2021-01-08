@@ -70,6 +70,23 @@ class Machine:
                 break
         return self.status
 
+    def send(self, data):
+        if isinstance(data, bool):
+            self.inp_queue.appendleft(int(data))
+        elif isinstance(data, int):
+            self.inp_queue.appendleft(data)
+        elif isinstance(data, str):
+            data = map(ord, data)
+            self.inp_queue.extendleft(data)
+        elif isinstance(data, collections.abc.Iterable):
+            data = map(int, data)
+            self.inp_queue.extendleft(data)
+        else:
+            raise ValueError('Invalid input data')
+
+    def recv(self):
+        return self.out_queue.pop()
+
     def load(self, addr):
         if addr >= len(self.memory):
             msg = f'Could not load value from invalid adress {addr}'
@@ -81,6 +98,9 @@ class Machine:
             msg = f'Could not store value to invalid address {addr}'
             raise MemoryAccessError(msg)
         self.memory[addr] = val
+
+    def is_running(self):
+        return self.status != Status.HLT
 
     def load_param(self, param):
         mode = self.modes[param]
