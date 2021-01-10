@@ -1,5 +1,6 @@
 import enum
 import collections
+import pdb
 
 class ExecutionError(Exception):
     pass
@@ -14,6 +15,11 @@ class Status(enum.Enum):
     RUN = 'run'
     HLT = 'halt'
     WFI = 'wait for input'
+    RDY = 'line ready'
+
+class IOMode(enum.Enum):
+    RAW = 'Raw I/O'
+    TXT = 'Text IO'
 
 def parse_code(code):
     if code is None:
@@ -26,8 +32,9 @@ def parse_code(code):
         raise ValueError('Invalid code')
 
 class Machine:
-    def __init__(self, code, memsize=None):
+    def __init__(self, code, iomode=IOMode.RAW, memsize=None):
         self.rom = parse_code(code)
+        self.iomode = iomode
         if not memsize:
             # Should be enough for anyone
             self.memsize = 640 * 1024
@@ -70,27 +77,54 @@ class Machine:
                 break
         return self.status
 
-    def send(self, data):
-        if isinstance(data, bool):
-            self.inp_queue.appendleft(int(data))
-        elif isinstance(data, int):
-            self.inp_queue.appendleft(data)
-        elif isinstance(data, str):
-            data = map(ord, data)
-            self.inp_queue.extendleft(data)
-        elif isinstance(data, collections.abc.Iterable):
-            data = map(int, data)
-            self.inp_queue.extendleft(data)
-        else:
-            raise ValueError('Invalid input data')
+    def is_running(self):
+        return self.status != Status.HLT
 
-    def recv(self):
-        return self.out_queue.pop()
+    def write(self, data):
+        if self.iomode == IOMode.RAW:
+            if isinstance(data, bool):
+                self.inp_queue.appendleft(int(data))
+            elif isinstance(data, int):
+                self.inp_queue.appendleft(data)
+            else:
+                raise ValueError('Invalid input data for raw mode')
 
-    def recv_all(self):
-        out = list(reversed(self.out_queue))
-        self.out_queue.clear()
+        elif self.iomode == IOMode.TXT:
+            if isinstance(data, str):
+                data = map(ord, data)
+                self.inp_queue.extendleft(data)
+            else:
+                raise ValueError('Invalid input data for text mode')
+
+
+    def read(self, n=None, iomode=None):
+        if n is None:
+            n = len(self.out_queue)
+        iomode = iomode if iomode else self.iomode
+
+        out = []
+        for _ in range(n):
+            out.append(self.out_queue.pop())
+
+        if iomode == IOMode.TXT:
+            out = ''.join(map(chr, out))
         return out
+
+    def flush(self):
+        self.out_queue.clear()
+        if self.status != Status.HLT:
+            self.status == Status.RUN
+
+    def read_lines(self):
+        if not self.iomode == IOMode.TXT:
+            raise OpError('Only valid in text mode')
+
+        while True:
+            status = self.run()
+            if status != Status.RDY:
+                break
+            line = self.read()
+            yield line[:-1] # Apperantly intcode is running UNIX
 
     def load(self, addr):
         if addr >= len(self.memory):
@@ -103,9 +137,6 @@ class Machine:
             msg = f'Could not store value to invalid address {addr}'
             raise MemoryAccessError(msg)
         self.memory[addr] = val
-
-    def is_running(self):
-        return self.status != Status.HLT
 
     def load_param(self, param):
         mode = self.modes[param]
@@ -154,6 +185,7 @@ class Machine:
     def step(self):
         if self.status == Status.HLT:
             return
+        self.status = Status.RUN
 
         opcode, self.modes = self.current_instr()
         if opcode not in self.opcodes:
@@ -178,8 +210,6 @@ class Machine:
         if len(self.inp_queue) == 0:
             self.status = Status.WFI
             return
-
-        self.status = Status.RUN
         val = self.inp_queue.pop()
         self.store_param(0, val)
         self.instr_pointer += 2
@@ -188,6 +218,9 @@ class Machine:
         val = self.load_param(0)
         self.out_queue.appendleft(val)
         self.instr_pointer += 2
+        if self.iomode == IOMode.TXT:
+            if val == 10:
+                self.status = Status.RDY
 
     def op_jit(self):
         val = self.load_param(0)

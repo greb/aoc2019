@@ -23,7 +23,7 @@ class Arcade:
 
     def update(self):
         self.cpu.run()
-        out = self.cpu.recv_all()
+        out = self.cpu.read()
 
         for x,y,tile in chunked(out, 3):
             if x < 0:
@@ -48,11 +48,11 @@ class Arcade:
 
     def step(self):
         if self.paddle > self.ball:
-            self.cpu.send(-1)
+            self.cpu.write(-1)
         elif self.paddle < self.ball:
-            self.cpu.send(1)
+            self.cpu.write(1)
         else:
-            self.cpu.send(0)
+            self.cpu.write(0)
         self.update()
 
     def print(self):

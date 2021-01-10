@@ -35,11 +35,10 @@ def pain_panels(brain, first_panel=0):
 
     while brain.is_running():
         color = panels.setdefault(pos, 0)
-        brain.send(color)
+        brain.write(color)
         brain.run()
 
-        color = brain.recv()
-        turn  = brain.recv()
+        color, turn = brain.read()
         panels[pos] = color
 
         dir = turn_r[dir] if turn else turn_l[dir]

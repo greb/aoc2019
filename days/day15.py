@@ -15,9 +15,9 @@ def move(pos, dir):
     return x+dx, y+dy
 
 def control_robot(control, dir):
-    control.send(dir+1)
+    control.write(dir+1)
     control.run()
-    return control.recv()
+    return control.read()[0]
 
 def map_maze(control):
     oxygen = None
