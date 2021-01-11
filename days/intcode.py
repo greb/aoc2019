@@ -86,6 +86,8 @@ class Machine:
                 self.inp_queue.appendleft(int(data))
             elif isinstance(data, int):
                 self.inp_queue.appendleft(data)
+            elif isinstance(data, collections.abc.Iterable):
+                self.inp_queue.extendleft(data)
             else:
                 raise ValueError('Invalid input data for raw mode')
 
